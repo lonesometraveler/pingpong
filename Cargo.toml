@@ -1,0 +1,16 @@
+[package]
+name = "pingpong"
+version = "0.0.1"
+authors = ["Oliver Stenning <code@ostenning.com>"]
+edition = "2018"
+description = "A pingpong double buffer for embedded and no_std applications"
+keywords = ["double-buffer", "ping-pong", "buffer", "doublebuffer", "pingpong"]
+categories = ["embedded", "buffer", "no-std"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ostenning/pingpong"
+
+[dependencies]
+
+[features]
+default = []
