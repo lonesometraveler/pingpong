@@ -22,7 +22,22 @@ pub struct PingpongBuffer<const N: usize> {
     is_reserve_full: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PingpongBufferError {
+    /// The data is larger than the internal double buffers can process
+    /// The PingpongBuffer cannot datasets larger than 2N to its internal buffers
+    Overflow,
+    /// The reserve data buffer is full and cannot be written to. Occurs when appending data
+    /// to the active buffer and the reserve buffer is toggled to become the active buffer
+    ReserveFull,
+}
+
 impl<const N: usize> PingpongBuffer<N> {
+    /// Initialize an instance of the PingpongBuffer. This is the same as calling `PingpongBuffer::<N>::DEFAULT`
+    pub fn new() -> Self {
+        PingpongBuffer::<N>::DEFAULT
+    }
+
     /// The default PingpongBuffer
     pub const DEFAULT: PingpongBuffer<N> = PingpongBuffer::<N> {
         buffer_a: [0; N],
@@ -40,6 +55,11 @@ impl<const N: usize> PingpongBuffer<N> {
     /// Is the actively written buffer more than half full
     pub fn is_half_full(&self) -> bool {
         self.active_index >= (N / 2)
+    }
+
+    /// Is the reserve buffer full and ready for reading
+    pub fn is_reserve_full(&self) -> bool {
+        self.is_reserve_full
     }
 
     /// Clears the Pingpong buffer to return it back into its default state
@@ -73,30 +93,37 @@ impl<const N: usize> PingpongBuffer<N> {
     /// If the reserve buffer is not yet full, this function will return Option::None
     /// Once the bytes are read from, this will allow the reserve buffer to be toggled into
     /// the active buffer
-    pub fn read(&mut self) -> Option<&[u8; N]> {
+    pub fn read(&mut self) -> Option<[u8; N]> {
         if !self.is_reserve_full {
             // For the sake of simplicity to begin with, return None
             // if the reserve buffer is not ready
             return Option::None;
         }
-        let buff = if self.active_toggle {
-            Option::Some(&self.buffer_b)
+
+        // Get ther reserve buffer
+        let reserve = if self.active_toggle {
+            &self.buffer_b
         } else {
-            Option::Some(&self.buffer_a)
+            &self.buffer_a
         };
 
-        // After we have read the bytes, then they can be cleared out allowing
+        // Copy the data from the internal buffer for returning
+        // This allows the data to be safely & immediately overwritten
+        let mut data: [u8; N] = [0; N];
+        data.copy_from_slice(reserve);
+
+        // After we have copied the bytes, then they can be cleared out allowing
         // The reserve buffer to become to active buffer
         self.is_reserve_full = false;
 
-        return buff;
+        return Option::Some(data);
     }
 
     /// Append data to the active buffer
     /// If the active buffer fills to maximum capacity, then the active and reserve buffers
     /// are switched, allowing the remainding data to be written to the reserve (now active) buffer
     /// This switch can only happen if the data in the reserve buffer has been successfully read
-    pub fn append(&mut self, data: &[u8]) -> bool {
+    pub fn append(&mut self, data: &[u8]) -> Result<bool, PingpongBufferError> {
         // get the active buffer
         let buff = if self.active_toggle {
             &mut self.buffer_a
@@ -129,7 +156,7 @@ impl<const N: usize> PingpongBuffer<N> {
             if self.is_reserve_full {
                 // We are attempting to switch the reserve->active buffer,
                 // but the reserve buffer is still full of data that has not be read
-                panic!("The reserve buffer cannot be written to as it is still full. Clear it by reading the data");
+                return Err(PingpongBufferError::ReserveFull);
             }
             // Toggle that the reserve buffer is full, and can be read
             self.is_reserve_full = true;
@@ -148,7 +175,7 @@ impl<const N: usize> PingpongBuffer<N> {
                 // copy the remainder into the other buffer
                 let remainder = data.len() - transferred;
                 if remainder > N {
-                    panic!("The data is larger than the double buffer can process");
+                    return Result::Err(PingpongBufferError::Overflow);
                 }
                 for i in 0..remainder {
                     buff[i] = data[transferred + i];
@@ -156,9 +183,104 @@ impl<const N: usize> PingpongBuffer<N> {
                 }
             }
             // The buffers have been toggled
-            return true;
+            return Result::Ok(true);
         }
         // The buffers have not been toggled
-        return false;
+        return Result::Ok(false);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    /// The pingpong buffer size used for testing purposes
+    const BUFFER_SIZE: usize = 1024;
+
+    use crate::{PingpongBuffer, PingpongBufferError};
+
+    #[test]
+    fn is_empty() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        assert_eq!(buff.is_empty(), true);
+        buff.append(&[0x01; 32]).unwrap();
+        assert_eq!(buff.is_empty(), false);
+    }
+
+    #[test]
+    fn is_half_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        assert_eq!(buff.is_half_full(), false);
+        buff.append(&[0x01; BUFFER_SIZE / 2]).unwrap();
+        assert_eq!(buff.is_half_full(), true);
+        buff.append(&[0x01; 5]).unwrap();
+        assert_eq!(buff.is_half_full(), true);
+    }
+
+    #[test]
+    fn append_with_toggle() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        let toggled = buff.append(&[0x01; BUFFER_SIZE]).unwrap();
+        assert_eq!(toggled, true);
+        assert_eq!(buff.active_index, 0);
+        assert_eq!(buff.is_reserve_full, true);
+
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        let toggled = buff.append(&[0x01; BUFFER_SIZE + 6]).unwrap();
+        assert_eq!(toggled, true);
+        assert_eq!(buff.active_index, 6);
+        assert_eq!(buff.is_reserve_full, true);
+    }
+
+    #[test]
+    fn append_without_toggle() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        let toggled = buff.append(&[0x01; BUFFER_SIZE / 2]).unwrap();
+        assert_eq!(toggled, false);
+        assert_eq!(buff.active_index, BUFFER_SIZE / 2);
+        assert_eq!(buff.is_reserve_full, false);
+    }
+
+    #[test]
+    fn append_overflow() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        let result = buff.append(&[0x01; (BUFFER_SIZE * 2)]);
+        assert_eq!(result.is_ok(), true);
+
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        let result = buff.append(&[0x01; (BUFFER_SIZE * 2) + 1]);
+        assert_eq!(result.is_err(), true);
+        assert_eq!(result.unwrap_err(), PingpongBufferError::Overflow);
+    }
+
+    #[test]
+    fn append_reserve_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        // Fill up the reserve buffer
+        let result = buff.append(&[0x01; BUFFER_SIZE]);
+        assert_eq!(result.is_ok(), true);
+        // Fill up the active buffer up until the point of toggling
+        let result = buff.append(&[0x01; BUFFER_SIZE - 1]);
+        assert_eq!(result.is_ok(), true);
+        // Append more data, triggering the toggle event, but the reserve buffer wasnt read
+        let result = buff.append(&[0x01; 1]);
+        assert_eq!(result.is_ok(), false);
+        assert_eq!(result.unwrap_err(), PingpongBufferError::ReserveFull);
+    }
+
+    #[test]
+    fn read_reserve_not_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        assert_eq!(buff.read(), Option::None);
+        buff.append(&[0x01; BUFFER_SIZE - 1]).unwrap();
+        assert_eq!(buff.read(), Option::None);
+    }
+
+    #[test]
+    fn read_reserve_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE>::DEFAULT;
+        buff.append(&[0x01; BUFFER_SIZE]).unwrap();
+        let result = buff.read().unwrap();
+        assert_eq!(result.len(), BUFFER_SIZE);
+        assert_eq!(result.iter().all(|v| *v == 0x01), true);
     }
 }
