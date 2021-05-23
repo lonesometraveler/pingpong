@@ -9,7 +9,7 @@ In this implementation, the buffer that is being written to is known as the `act
 
 ## note
 
-This library is a simple implementation of the double buffering concept and is a **work in progress**. I am currently using it for buffering data streams to and from SDMMC controllers on embedded platforms, but it could be used for other things. Thread safety have not yet been implemented. So please take care using this library.
+This library is a simple implementation of the double buffering concept and is a **work in progress**. I am currently using it for buffering data streams to and from SDMMC controllers on embedded platforms, but it could be used for other things. Thread safety have not yet been tested. So please take care using this library.
 
 ## example
 
@@ -28,7 +28,7 @@ while !is_reserve_full {
 }
 
 // Similtaneously in another context read data from the reserve buffer. 
-// This will not affect / collide the data being written to in the active buffer.
+// This will not affect / collide with the data being written to in the active buffer.
 if buff.is_reserve_full() {
     let data: [u8; 1024] = buff.read().unwrap();
 }
