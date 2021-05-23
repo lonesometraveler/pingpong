@@ -1,8 +1,8 @@
 //! # pingpong
 //! A pingpong or double buffer for embedded and no_std applications
 
-#![deny(warnings)]
 #![no_std]
+#![deny(warnings)]
 #![allow(dead_code)]
 
 /// Pingpong or double buffering is useful for performing buffering tasks that require similtaneous
