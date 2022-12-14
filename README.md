@@ -15,7 +15,7 @@ This library is a simple implementation of the double buffering concept and is a
 
 ```rust
 // Create the pingpong buffer with both active and reserve buffers being 1024 elements long
-let mut buff = PingpongBuffer::<1024>::new();
+let mut buff = PingpongBuffer::<1024, u8>::new();
 
 // In one context get a stream of data and append it to our buffer
 let data: [u8; 128] = [0x01; 128];
