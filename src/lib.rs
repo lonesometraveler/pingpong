@@ -3,10 +3,10 @@
 #![deny(warnings)]
 #![allow(dead_code)]
 
-/// Pingpong or double buffering is useful for performing buffering tasks that require similtaneous
-/// reading and writing. While one buffer is being written to, the other can be read from and visa versa.
-/// In this implementation, the buffer that is being written to is known as the "active" buffer
-/// and the buffer being read from is the "reserve" buffer
+/// Pingpong or double buffering is useful for buffering tasks requiring simultaneous reading and writing.
+/// While one buffer is being written to, the other can be read from and vice versa.
+/// This implementation uses two buffers, "active" and "reserve."
+/// We write to the active buffer and read from the reserve buffer.
 pub struct PingpongBuffer<const N: usize, T> {
     /// The first internal buffer
     buffer_a: [T; N],
@@ -55,7 +55,7 @@ impl<const N: usize, T> PingpongBuffer<N, T>
 where
     T: Default + Copy,
 {
-    /// Initialize an instance of the PingpongBuffer. This is the same as calling `PingpongBuffer::<N>::DEFAULT`
+    /// Initialize an instance of the PingpongBuffer. This is the same as calling `PingpongBuffer::<N, T>::DEFAULT`
     pub fn new() -> Self {
         PingpongBuffer::<N, T>::default()
     }
@@ -86,7 +86,7 @@ where
 
     /// Read out the remainding data from the active buffer
     /// Useful in circumstances in which the buffering process needs to end, and there
-    /// isnt enough data to toggle between the active and reserve buffers
+    /// isn't enough data to toggle between the active and reserve buffers
     pub fn flush(&mut self) -> ([T; N], usize) {
         // Get the active buffer
         let buff = if self.active_toggle {
@@ -139,7 +139,7 @@ where
 
     /// Push an element to the active buffer
     /// If the active buffer fills to maximum capacity, then the active and reserve buffers
-    /// are switched, allowing the remainding data to be written to the reserve (now active) buffer
+    /// are switched, allowing the remaining data to be written to the reserve (now active) buffer
     /// This switch can only happen if the data in the reserve buffer has been successfully read
     pub fn push(&mut self, element: T) -> Result<BufferCapacity, PingpongBufferError> {
         self.append(&[element])
@@ -147,7 +147,7 @@ where
 
     /// Append data to the active buffer
     /// If the active buffer fills to maximum capacity, then the active and reserve buffers
-    /// are switched, allowing the remainding data to be written to the reserve (now active) buffer
+    /// are switched, allowing the remaining data to be written to the reserve (now active) buffer
     /// This switch can only happen if the data in the reserve buffer has been successfully read
     pub fn append(&mut self, data: &[T]) -> Result<BufferCapacity, PingpongBufferError> {
         // get the active buffer
@@ -163,18 +163,18 @@ where
         // number of bytes appended to the buffer
         let transferred = core::cmp::min(data.len(), capacity);
 
-        // copy the data to buffer
+        // copy the data to the buffer
         buff[self.active_index..(self.active_index + transferred)]
             .copy_from_slice(&data[..transferred]);
 
-        // increment index
+        // increment the index
         self.active_index += transferred;
 
         // We are at the end of the buffer
         if self.active_index == buff.len() {
             if self.is_reserve_full {
                 // We are attempting to switch the reserve->active buffer,
-                // but the reserve buffer is still full of data that has not be read
+                // but the reserve buffer is still full of data that has not been read
                 return Err(PingpongBufferError::ReserveFull);
             }
             // Toggle that the reserve buffer is full, and can be read
