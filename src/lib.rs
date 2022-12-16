@@ -1,6 +1,4 @@
-//! # pingpong
-//! A pingpong or double buffer for embedded and no_std applications
-
+#![doc = include_str!("../README.md")]
 #![no_std]
 #![deny(warnings)]
 #![allow(dead_code)]
@@ -162,22 +160,15 @@ where
         // determine how many bytes we can append to the buffer
         let capacity = buff.len() - self.active_index;
 
-        // iterate through the data, to add it to our buffer at the index
-        let start = self.active_index;
-        for i in 0..data.len() {
-            if i >= capacity {
-                break; // cannot fill anymore into this buffer
-            }
-            buff[start + i] = data[i];
-            self.active_index += 1;
-        }
-
         // number of bytes appended to the buffer
-        let transferred = if capacity > data.len() {
-            data.len()
-        } else {
-            capacity
-        };
+        let transferred = core::cmp::min(data.len(), capacity);
+
+        // copy the data to buffer
+        buff[self.active_index..(self.active_index + transferred)]
+            .copy_from_slice(&data[..transferred]);
+
+        // increment index
+        self.active_index += transferred;
 
         // We are at the end of the buffer
         if self.active_index == buff.len() {
@@ -205,7 +196,7 @@ where
                 if remainder > N {
                     return Result::Err(PingpongBufferError::Overflow);
                 }
-                buff[..remainder].copy_from_slice(&data[transferred..(remainder + transferred)]);
+                buff[..remainder].copy_from_slice(&data[transferred..]);
                 self.active_index += remainder;
             }
             // The buffers have been toggled
