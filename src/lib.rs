@@ -32,6 +32,12 @@ pub enum PingpongBufferError {
     ReserveFull,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum BufferCapacity {
+    Full,
+    NotFull,
+}
+
 impl<const N: usize, T> Default for PingpongBuffer<N, T>
 where
     T: Default + Copy,
@@ -137,7 +143,7 @@ where
     /// If the active buffer fills to maximum capacity, then the active and reserve buffers
     /// are switched, allowing the remainding data to be written to the reserve (now active) buffer
     /// This switch can only happen if the data in the reserve buffer has been successfully read
-    pub fn push(&mut self, element: T) -> Result<bool, PingpongBufferError> {
+    pub fn push(&mut self, element: T) -> Result<BufferCapacity, PingpongBufferError> {
         self.append(&[element])
     }
 
@@ -145,7 +151,7 @@ where
     /// If the active buffer fills to maximum capacity, then the active and reserve buffers
     /// are switched, allowing the remainding data to be written to the reserve (now active) buffer
     /// This switch can only happen if the data in the reserve buffer has been successfully read
-    pub fn append(&mut self, data: &[T]) -> Result<bool, PingpongBufferError> {
+    pub fn append(&mut self, data: &[T]) -> Result<BufferCapacity, PingpongBufferError> {
         // get the active buffer
         let buff = if self.active_toggle {
             &mut self.buffer_a
@@ -203,10 +209,10 @@ where
                 self.active_index += remainder;
             }
             // The buffers have been toggled
-            return Ok(true);
+            return Ok(BufferCapacity::Full);
         }
         // The buffers have not been toggled
-        Ok(false)
+        Ok(BufferCapacity::NotFull)
     }
 }
 
@@ -215,7 +221,7 @@ mod tests {
     /// The pingpong buffer size used for testing purposes
     const BUFFER_SIZE: usize = 1024;
 
-    use crate::{PingpongBuffer, PingpongBufferError};
+    use crate::{BufferCapacity, PingpongBuffer, PingpongBufferError};
 
     #[test]
     fn is_empty() {
@@ -238,14 +244,14 @@ mod tests {
     #[test]
     fn append_with_toggle() {
         let mut buff = PingpongBuffer::<BUFFER_SIZE, u8>::default();
-        let toggled = buff.append(&[0x01; BUFFER_SIZE]).unwrap();
-        assert!(toggled);
+        let capacity = buff.append(&[0x01; BUFFER_SIZE]).unwrap();
+        assert_eq!(capacity, BufferCapacity::Full);
         assert_eq!(buff.active_index, 0);
         assert!(buff.is_reserve_full);
 
         let mut buff = PingpongBuffer::<BUFFER_SIZE, u8>::default();
-        let toggled = buff.append(&[0x01; BUFFER_SIZE + 6]).unwrap();
-        assert!(toggled);
+        let capacity = buff.append(&[0x01; BUFFER_SIZE + 6]).unwrap();
+        assert_eq!(capacity, BufferCapacity::Full);
         assert_eq!(buff.active_index, 6);
         assert!(buff.is_reserve_full);
     }
@@ -253,8 +259,8 @@ mod tests {
     #[test]
     fn append_without_toggle() {
         let mut buff = PingpongBuffer::<BUFFER_SIZE, u32>::default();
-        let toggled = buff.append(&[0x01122311; BUFFER_SIZE / 2]).unwrap();
-        assert!(!toggled);
+        let capacity = buff.append(&[0x01122311; BUFFER_SIZE / 2]).unwrap();
+        assert_eq!(capacity, BufferCapacity::NotFull);
         assert_eq!(buff.active_index, BUFFER_SIZE / 2);
         assert!(!buff.is_reserve_full);
     }
