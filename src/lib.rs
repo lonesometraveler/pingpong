@@ -1,7 +1,5 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
-#![deny(warnings)]
-#![allow(dead_code)]
 
 /// Pingpong or double buffering is useful for buffering tasks requiring simultaneous reading and writing.
 /// While one buffer is being written to, the other can be read from and vice versa.
@@ -14,12 +12,13 @@ pub struct PingpongBuffer<const N: usize, T> {
     buffer_b: [T; N],
     /// The active buffer index
     active_index: usize,
-    /// A toggle to determine which of the internal buffers is active and which is reserve
-    active_toggle: bool,
-    /// A flag to indicate that the reserve buffer is full
-    is_reserve_full: bool,
+    /// Active buffer
+    active_buffer: Buffer,
+    /// An enum to indicate that the reserve buffer is full or not
+    reserve_capacity: BufferCapacity,
 }
 
+/// Errors used in this crate
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PingpongBufferError {
     /// The data is larger than the internal double buffers can process
@@ -30,6 +29,24 @@ pub enum PingpongBufferError {
     ReserveFull,
 }
 
+/// Flag to indicate active buffer
+#[derive(Debug, PartialEq, Eq)]
+pub enum Buffer {
+    A,
+    B,
+}
+
+impl Buffer {
+    /// Switch active buffer
+    fn toggle(&self) -> Self {
+        match self {
+            Buffer::A => Buffer::B,
+            Buffer::B => Buffer::A,
+        }
+    }
+}
+
+/// Enum to express if buffer is full or not
 #[derive(Debug, PartialEq, Eq)]
 pub enum BufferCapacity {
     Full,
@@ -45,8 +62,8 @@ where
             buffer_a: [T::default(); N],
             buffer_b: [T::default(); N],
             active_index: 0,
-            active_toggle: true,
-            is_reserve_full: false,
+            active_buffer: Buffer::A,
+            reserve_capacity: BufferCapacity::NotFull,
         }
     }
 }
@@ -72,7 +89,7 @@ where
 
     /// Is the reserve buffer full and ready for reading
     pub fn is_reserve_full(&self) -> bool {
-        self.is_reserve_full
+        self.reserve_capacity == BufferCapacity::NotFull
     }
 
     /// Clears the Pingpong buffer to return it back into its default state
@@ -80,19 +97,17 @@ where
         self.buffer_a = [T::default(); N];
         self.buffer_b = [T::default(); N];
         self.active_index = 0;
-        self.active_toggle = true;
-        self.is_reserve_full = false;
+        self.active_buffer = Buffer::A;
+        self.reserve_capacity = BufferCapacity::NotFull;
     }
 
     /// Read out the remainding data from the active buffer
     /// Useful in circumstances in which the buffering process needs to end, and there
     /// isn't enough data to toggle between the active and reserve buffers
     pub fn flush(&mut self) -> ([T; N], usize) {
-        // Get the active buffer
-        let buff = if self.active_toggle {
-            &self.buffer_a
-        } else {
-            &self.buffer_b
+        let buff = match self.active_buffer {
+            Buffer::A => &self.buffer_a,
+            Buffer::B => &self.buffer_b,
         };
 
         let mut data: [T; N] = [T::default(); N];
@@ -107,12 +122,11 @@ where
     /// Once the bytes are read from, this will allow the reserve buffer to be toggled into
     /// the active buffer
     pub fn read(&mut self) -> Option<[T; N]> {
-        if self.is_reserve_full {
-            self.is_reserve_full = false;
-            if self.active_toggle {
-                Some(self.buffer_b)
-            } else {
-                Some(self.buffer_a)
+        if let BufferCapacity::Full = self.reserve_capacity {
+            self.reserve_capacity = BufferCapacity::NotFull;
+            match self.active_buffer {
+                Buffer::A => Some(self.buffer_b),
+                Buffer::B => Some(self.buffer_a),
             }
         } else {
             None
@@ -138,10 +152,9 @@ where
     /// This switch can only happen if the data in the reserve buffer has been successfully read
     pub fn append(&mut self, data: &[T]) -> Result<BufferCapacity, PingpongBufferError> {
         // get the active buffer
-        let buff = if self.active_toggle {
-            &mut self.buffer_a
-        } else {
-            &mut self.buffer_b
+        let buff = match self.active_buffer {
+            Buffer::A => &mut self.buffer_a,
+            Buffer::B => &mut self.buffer_b,
         };
 
         // determine how many bytes we can append to the buffer
@@ -159,23 +172,22 @@ where
 
         // We are at the end of the buffer
         if self.active_index == buff.len() {
-            if self.is_reserve_full {
+            if let BufferCapacity::Full = self.reserve_capacity {
                 // We are attempting to switch the reserve->active buffer,
                 // but the reserve buffer is still full of data that has not been read
                 return Err(PingpongBufferError::ReserveFull);
             }
             // Toggle that the reserve buffer is full, and can be read
-            self.is_reserve_full = true;
+            self.reserve_capacity = BufferCapacity::Full;
             // Reset the active index for writing
             self.active_index = 0;
             // Toggle the buffer
-            self.active_toggle = !self.active_toggle;
+            self.active_buffer = self.active_buffer.toggle();
             // There is left over data that needs to be transferred
             if transferred != data.len() {
-                let buff = if self.active_toggle {
-                    &mut self.buffer_a
-                } else {
-                    &mut self.buffer_b
+                let buff = match self.active_buffer {
+                    Buffer::A => &mut self.buffer_a,
+                    Buffer::B => &mut self.buffer_b,
                 };
 
                 // copy the remainder into the other buffer
@@ -225,13 +237,13 @@ mod tests {
         let capacity = buff.append(&[0x01; BUFFER_SIZE]).unwrap();
         assert_eq!(capacity, BufferCapacity::Full);
         assert_eq!(buff.active_index, 0);
-        assert!(buff.is_reserve_full);
+        assert_eq!(buff.reserve_capacity, BufferCapacity::Full);
 
         let mut buff = PingpongBuffer::<BUFFER_SIZE, u8>::default();
         let capacity = buff.append(&[0x01; BUFFER_SIZE + 6]).unwrap();
         assert_eq!(capacity, BufferCapacity::Full);
         assert_eq!(buff.active_index, 6);
-        assert!(buff.is_reserve_full);
+        assert_eq!(buff.reserve_capacity, BufferCapacity::Full);
     }
 
     #[test]
@@ -240,7 +252,7 @@ mod tests {
         let capacity = buff.append(&[0x01122311; BUFFER_SIZE / 2]).unwrap();
         assert_eq!(capacity, BufferCapacity::NotFull);
         assert_eq!(buff.active_index, BUFFER_SIZE / 2);
-        assert!(!buff.is_reserve_full);
+        assert_eq!(buff.reserve_capacity, BufferCapacity::NotFull);
     }
 
     #[test]
