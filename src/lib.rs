@@ -89,7 +89,7 @@ where
 
     /// Is the reserve buffer full and ready for reading
     pub fn is_reserve_full(&self) -> bool {
-        self.reserve_capacity == BufferCapacity::NotFull
+        self.reserve_capacity == BufferCapacity::Full
     }
 
     /// Clears the Pingpong buffer to return it back into its default state
@@ -297,5 +297,19 @@ mod tests {
         let result = buff.read().unwrap();
         assert_eq!(result.len(), BUFFER_SIZE);
         assert!(result.iter().all(|v| *v == 0x0100));
+    }
+
+    #[test]
+    fn reserve_is_not_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE, u16>::default();
+        buff.append(&[0x0100; BUFFER_SIZE - 1]).unwrap();
+        assert!(!buff.is_reserve_full());
+    }
+
+    #[test]
+    fn reserve_is_full() {
+        let mut buff = PingpongBuffer::<BUFFER_SIZE, u16>::default();
+        buff.append(&[0x0100; BUFFER_SIZE]).unwrap();
+        assert!(buff.is_reserve_full());
     }
 }
