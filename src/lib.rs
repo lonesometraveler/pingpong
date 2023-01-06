@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+#![feature(error_in_core)]
 
 /// Pingpong or double buffering is useful for buffering tasks requiring simultaneous reading and writing.
 /// While one buffer is being written to, the other can be read from and vice versa.
@@ -28,6 +29,23 @@ pub enum PingpongBufferError {
     /// to the active buffer and the reserve buffer is toggled to become the active buffer
     ReserveFull,
 }
+
+impl core::fmt::Display for PingpongBufferError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            Self::Overflow => write!(
+                f,
+                "The data is larger than the internal double buffers can process"
+            ),
+            Self::ReserveFull => write!(
+                f,
+                "The reserve data buffer is full and cannot be written to"
+            ),
+        }
+    }
+}
+
+impl core::error::Error for PingpongBufferError {}
 
 /// Flag to indicate active buffer
 #[derive(Debug, PartialEq, Eq)]
